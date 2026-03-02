@@ -18,8 +18,6 @@ if uploaded_file:
 
     df = df.replace(["#NULL!", "NULL", "null", ""], np.nan)
     df.columns = df.columns.str.strip()
-
-    # Strip hidden spaces
     df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
 
     st.success("Excel uploaded and cleaned successfully")
@@ -35,10 +33,53 @@ if uploaded_file:
             "Expected": expected
         })
 
-    brands = range(1,18)
+    # =====================================================
+    # VALUE DOMAIN DEFINITIONS
+    # =====================================================
 
-    body13_cols = [f"body_type_13_{i}" for i in range(1,12) if f"body_type_13_{i}" in df.columns]
-    body22_cols = [f"body_type_22_{i}" for i in range(1,12) if f"body_type_22_{i}" in df.columns]
+    value_rules = {
+        "countryquestion": range(1,9),
+        "intro1": [1,2],
+        "industry": list(range(1,11)) + [99],
+        "decision_maker": [1,2],
+        "decision_maker_4axle": [1,2],
+        "preference": [1,2],
+        "overall_satisfaction": range(1,6),
+        "rear": [1,2,3],
+        "preparation": range(1,7),
+        "bev": range(1,7),
+        "bev_2": range(1,6),
+        "bev_3": range(1,6),
+        "rear_bev": [1,2,3],
+        "crane_13": [1,2,3,4],
+        "crane_22": [1,2,3,4],
+        "main_make_model": list(range(1,18)) + [98]
+    }
+
+    # All 0/1 variables
+    zero_one_prefixes = [
+        "target_group_",
+        "awareness_",
+        "in_fleet_",
+        "awarenesscoded_",
+        "in_fleetcoded_",
+        "barriers_",
+        "truck_quantity_dk",
+        "type_quantity_dk"
+    ]
+
+    # Matrix 1–5 validation
+    matrix_prefixes = [
+        "drivers_vf_13_",
+        "drivers_vf_22_",
+        "drivers_body_13_",
+        "drivers_body_22_",
+        "drivers_bus_13_",
+        "drivers_bus_22_"
+    ]
+
+    body13_cols = [c for c in df.columns if c.startswith("body_type_13_")]
+    body22_cols = [c for c in df.columns if c.startswith("body_type_22_")]
 
     # =====================================================
     # LOOP THROUGH RESPONDENTS
@@ -49,123 +90,156 @@ if uploaded_file:
         respid = row.get("respid")
 
         # -----------------------------
-        # SCREENING
+        # GENERIC VALUE CHECK FUNCTION
         # -----------------------------
 
-        def check_range(var, rule_id, valid_range):
+        def check_value(var, valid_values, rule_id):
+
             raw_val = row.get(var)
             val = pd.to_numeric(raw_val, errors="coerce")
 
             if pd.isna(val):
                 return
 
-            if val not in valid_range:
+            if val not in valid_values:
                 add_error(
                     respid,
                     rule_id,
                     var,
                     raw_val,
-                    f"Must be between {min(valid_range)}–{max(valid_range)}"
+                    f"Allowed values: {valid_values}"
                 )
 
-        # Screening checks
-        check_range("industry", "R1", range(1,11))
+        # -----------------------------
+        # APPLY FIXED VALUE RULES
+        # -----------------------------
 
-        if pd.notna(row.get("intro1")) and row.get("intro1") != 1:
-            add_error(respid, "R2", "intro1", row.get("intro1"), "Must equal 1")
-
-        if pd.notna(row.get("decision_maker")) and row.get("decision_maker") != 1:
-            add_error(respid, "R3", "decision_maker", row.get("decision_maker"), "Must equal 1")
-
-        if pd.notna(row.get("decision_maker_4axle")) and row.get("decision_maker_4axle") != 1:
-            add_error(respid, "R4", "decision_maker_4axle", row.get("decision_maker_4axle"), "Must equal 1")
-
-        if pd.notna(row.get("target_group_3")) and row.get("target_group_3") != 1:
-            add_error(respid, "R5", "target_group_3", row.get("target_group_3"), "Must equal 1")
+        for var, valid_vals in value_rules.items():
+            if var in df.columns:
+                check_value(var, valid_vals, "VALUE_CHECK")
 
         # -----------------------------
-        # TRUCK QUANTITY
+        # 0/1 VARIABLES
+        # -----------------------------
+
+        for col in df.columns:
+            for prefix in zero_one_prefixes:
+                if col.startswith(prefix):
+                    raw_val = row.get(col)
+                    val = pd.to_numeric(raw_val, errors="coerce")
+
+                    if pd.isna(val):
+                        continue
+
+                    if val not in [0,1]:
+                        add_error(
+                            respid,
+                            "VALUE_CHECK_01",
+                            col,
+                            raw_val,
+                            "Allowed values: 0 or 1"
+                        )
+
+        # -----------------------------
+        # MATRIX 1–5 VALIDATION
+        # -----------------------------
+
+        for col in df.columns:
+            for prefix in matrix_prefixes:
+                if col.startswith(prefix):
+                    raw_val = row.get(col)
+                    val = pd.to_numeric(raw_val, errors="coerce")
+
+                    if pd.isna(val):
+                        continue
+
+                    if val not in range(1,6):
+                        add_error(
+                            respid,
+                            "VALUE_CHECK_MATRIX",
+                            col,
+                            raw_val,
+                            "Allowed values: 1–5"
+                        )
+
+        # -----------------------------
+        # TRUCK QUANTITY 0–999
         # -----------------------------
 
         truck_q = pd.to_numeric(row.get("truck_quantity"), errors="coerce")
+
+        if not pd.isna(truck_q):
+            if truck_q < 0 or truck_q > 999:
+                add_error(
+                    respid,
+                    "TRUCK_RANGE",
+                    "truck_quantity",
+                    truck_q,
+                    "Allowed range: 0–999"
+                )
+
+        # -----------------------------
+        # LOGIC VALIDATIONS (Existing)
+        # -----------------------------
+
         tq1 = pd.to_numeric(row.get("type_quantity_1"), errors="coerce")
         tq2 = pd.to_numeric(row.get("type_quantity_2"), errors="coerce")
 
-        truck_q = 0 if pd.isna(truck_q) else truck_q
         tq1 = 0 if pd.isna(tq1) else tq1
         tq2 = 0 if pd.isna(tq2) else tq2
+        truck_q = 0 if pd.isna(truck_q) else truck_q
 
         if truck_q > 0:
 
             if tq1 <= 0 and tq2 <= 0:
-                add_error(respid, "R6", "type_quantity_1/type_quantity_2",
-                          f"{tq1}/{tq2}", "At least one must be > 0")
+                add_error(
+                    respid,
+                    "LOGIC_TYPE",
+                    "type_quantity_1/type_quantity_2",
+                    f"{tq1}/{tq2}",
+                    "At least one must be >0"
+                )
 
             if tq1 + tq2 != truck_q:
                 add_error(
                     respid,
-                    "R7",
+                    "LOGIC_SUM",
                     "type_quantity_sum",
                     tq1 + tq2,
                     f"Must equal truck_quantity ({truck_q})"
                 )
 
         # -----------------------------
-        # BODY VALIDATION
+        # BODY SUM CHECK
         # -----------------------------
 
-        total_body13 = 0
-        for col in body13_cols:
-            val = pd.to_numeric(row.get(col), errors="coerce")
-            if not pd.isna(val):
-                total_body13 += val
+        total_body13 = sum([
+            pd.to_numeric(row.get(c), errors="coerce") or 0
+            for c in body13_cols
+        ])
 
         if tq2 > 0 and total_body13 != tq2:
             add_error(
                 respid,
-                "R8",
+                "LOGIC_BODY13",
                 "body_type_13_total",
                 total_body13,
                 f"Must equal type_quantity_2 ({tq2})"
             )
 
-        total_body22 = 0
-        for col in body22_cols:
-            val = pd.to_numeric(row.get(col), errors="coerce")
-            if not pd.isna(val):
-                total_body22 += val
+        total_body22 = sum([
+            pd.to_numeric(row.get(c), errors="coerce") or 0
+            for c in body22_cols
+        ])
 
         if tq1 > 0 and total_body22 != tq1:
             add_error(
                 respid,
-                "R9",
+                "LOGIC_BODY22",
                 "body_type_22_total",
                 total_body22,
                 f"Must equal type_quantity_1 ({tq1})"
             )
-
-        # -----------------------------
-        # CRANE VALIDATION
-        # -----------------------------
-
-        check_range("crane_13", "R10", range(1,5))
-        check_range("crane_22", "R11", range(1,5))
-
-        # -----------------------------
-        # SCALE CHECKS
-        # -----------------------------
-
-        scale_rules = {
-            "overall_satisfaction": ("R12", range(1,6)),
-            "rear": ("R13", range(1,4)),
-            "preparation": ("R14", range(1,7)),
-            "bev": ("R15", range(1,7)),
-            "bev_2": ("R16", range(1,6)),
-            "bev_3": ("R17", range(1,6)),
-        }
-
-        for var, (rule_id, valid_range) in scale_rules.items():
-            check_range(var, rule_id, valid_range)
 
     # =====================================================
     # BUILD REPORT
@@ -176,7 +250,7 @@ if uploaded_file:
     st.subheader("Validation Report")
 
     if report_df.empty:
-        st.success("No validation errors found!")
+        st.success("No validation errors found ✅")
     else:
         st.dataframe(report_df)
 
