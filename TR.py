@@ -213,10 +213,12 @@ if uploaded_file:
         # BODY SUM CHECK
         # -----------------------------
 
-        total_body13 = sum([
-            pd.to_numeric(row.get(c), errors="coerce") or 0
-            for c in body13_cols
-        ])
+        total_body13 = 0
+
+        for c in body13_cols:
+            val = pd.to_numeric(row.get(c), errors="coerce")
+            if not pd.isna(val):
+                total_body13 += val
 
         if tq2 > 0 and total_body13 != tq2:
             add_error(
@@ -227,10 +229,12 @@ if uploaded_file:
                 f"Must equal type_quantity_2 ({tq2})"
             )
 
-        total_body22 = sum([
-            pd.to_numeric(row.get(c), errors="coerce") or 0
-            for c in body22_cols
-        ])
+        total_body22 = 0
+
+        for c in body22_cols:
+            val = pd.to_numeric(row.get(c), errors="coerce")
+            if not pd.isna(val):
+                total_body22 += val
 
         if tq1 > 0 and total_body22 != tq1:
             add_error(
