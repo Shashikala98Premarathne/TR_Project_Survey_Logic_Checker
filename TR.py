@@ -254,7 +254,7 @@ if uploaded_file:
     st.subheader("Validation Report")
 
     if report_df.empty:
-        st.success("No validation errors found ✅")
+        st.success("No validation errors found!")
     else:
         st.dataframe(report_df)
 
